@@ -132,6 +132,9 @@ fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
          * create a struct stat, fill it in using getattr, 
          * and reply back using fuse_reply_attr.
          */
+
+        // Call yfs_client.setattr to set the attribute of the file
+        // Return yfs_client::OK once setattr is done, return yfs_client::NOENT if ino is not a file
         if(yfs->setattr(ino, attr->st_size) == yfs_client::OK){
             if(getattr(ino, st) == yfs_client::OK){
                 fuse_reply_attr(req, &st, 0);
@@ -143,7 +146,7 @@ fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
             }            
         }
     } else {
-        fuse_reply_err(req, ENOSYS);
+        fuse_reply_err(req, ENOENT);
     }
 }
 
@@ -169,12 +172,15 @@ fuseserver_read(fuse_req_t req, fuse_ino_t ino, size_t size,
      * and reply using fuse_reply_buf. 
      */
     std::string data;
+    
+    // Call yfs_client.read to read the file, store the read content in string data
+    // Return yfs_client::OK once read success, return yfs_client::NOENT if ino is not a file
     if(yfs->read(ino, size, off, data) == yfs_client::OK){
         fuse_reply_buf(req, data.data(), data.size());
         return;
     }
     else{
-        fuse_reply_err(req, ENOSYS);
+        fuse_reply_err(req, ENOENT);
     }
 }
 
@@ -205,12 +211,15 @@ fuseserver_write(fuse_req_t req, fuse_ino_t ino,
      * and reply the length of bytes_written using fuse_reply_write.
      */
     size_t bytes_written;
+
+    // Call yfs_client.write to write the file, store bytes written in bytes_written
+    // Return yfs_client::OK once read success, return yfs_client::NOENT if ino is not a file
     if(yfs->write(ino, size, off, buf, bytes_written) == yfs_client::OK){
         fuse_reply_write(req, bytes_written);
         return;
     }
     else{
-        fuse_reply_err(req, EISDIR);
+        fuse_reply_err(req, ENOENT);
         return;
     }    
 }
@@ -250,17 +259,19 @@ fuseserver_createhelper(fuse_ino_t parent, const char *name,
      * note: you should use yfs->create to create file or directory;
      * you alse need to fill the parameter e in.
      */
-    if(yfs->create(parent, name, mode, ino_out, extent_protocol::T_FILE) == yfs_client::OK){
+    // Call yfs_client.create to create the file, store inode number to ino_out
+    // Return yfs_client::OK once read success, return yfs_client::EXIST if file has existed or yfs_client::NOENT if parent is not dir
+    ret = yfs->create(parent, name, mode, ino_out, extent_protocol::T_FILE);
+    if(ret == yfs_client::OK){
         ret = getattr(ino_out, st);
         if(ret != yfs_client::OK){
-            return yfs_client::EXIST;
+            return yfs_client::NOENT;
         }
         e->attr = st;
         e->ino = ino_out;   
-    }
-    else return yfs_client::EXIST;
+    } 
 
-    return yfs_client::OK;
+    return ret;
 }
 
 void
@@ -318,14 +329,18 @@ fuseserver_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
      * note: you should use yfs->lookup;
      * remember to return e using fuse_reply_entry.
      */
-    yfs->lookup(parent, name, found, ino_out); 
-    if(found){
-        getattr(ino_out, st);
-        e.attr = st;
-        e.ino = ino_out;
-        fuse_reply_entry(req, &e);
-    } 
-    else fuse_reply_err(req, ENOENT);
+    // Return yfs_client::OK if lookup finish, return yfs_client::NOENT if parent is not dir
+    if(yfs->lookup(parent, name, found, ino_out) == yfs_client::OK){ 
+        if(found){
+            getattr(ino_out, st);
+            e.attr = st;
+            e.ino = ino_out;
+            fuse_reply_entry(req, &e);
+            return;
+        } 
+    }
+    fuse_reply_err(req, ENOENT);
+    return;
 }
 
 
@@ -391,6 +406,8 @@ fuseserver_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
      * all that's left for you to do is to get the dir listing from yfs,
      * and add it to the b data structure using dirbuf_add. 
      */
+
+    // Call yfs.readir and the entry store in the list
     if(yfs->readdir(ino, list) == yfs_client::OK){
         for(it = list.begin(); it != list.end(); it++){
               name = it->name.c_str();

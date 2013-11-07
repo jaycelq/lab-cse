@@ -136,15 +136,17 @@ yfs_client::setattr(inum ino, size_t size)
      * according to the size (<, =, or >) content length.
      */
 
-    memset(buffer, 0, size);
+    // Reset buffer to guarantee the new bytes 0 if size is bigger than original size
+    bzero(buffer, size);
     if(isfile(ino)){
         ec->get(ino, content);
         data = content.data();
+        //copy min(size, content.size()) to buffer and put it to the file
         memcpy(buffer, data, min(size, content.size()));
         content.assign(buffer, min(size, content.size()));
         ec->put(ino, content);
     }
-    else r = IOERR;
+    else r = NOENT;
     return r;
 }
 
@@ -158,20 +160,29 @@ yfs_client::create(inum parent, const char *name, mode_t mode, inum &ino_out, ex
     const char *content_org;
     char *content_append;
 
-    buffer = (struct dir_ent *)malloc(sizeof(struct dir_ent));
-    memset(buffer, 0, sizeof(struct dir_ent));
     /*
      * your lab2 code goes here.
      * note: lookup is what you need to check if file exist;
      * after create file or dir, you must remember to modify the parent infomation.
      */
 
+    // Return NOENT if parent is not dir
+    if(!isdir(parent)){
+        r = NOENT;
+        return r;
+    }
+
+    buffer = (struct dir_ent *)malloc(sizeof(struct dir_ent));
+    bzero(buffer, sizeof(struct dir_ent));
+
+    //lookup if name exist in parent dir
     lookup(parent, name, found, ino_out);
     if(!found){
         ec->get(parent, dir_content);
         ec->create(type, ino_out);
         strncpy(buffer->filename, name, NAME_MAX);
         buffer->inum = ino_out;
+        // append the new entry to end of the last of folder
         content_org = dir_content.data();
         content_append = (char *)malloc(dir_content.size() + sizeof(struct dir_ent));
         memcpy(content_append, content_org, dir_content.size());
@@ -206,12 +217,12 @@ yfs_client::lookup(inum parent, const char *name, bool &found, inum &ino_out)
 
     /* 
      * file name is fixed-length of 128 bytes
-     * dir structure <filename[], inum, filename[], inum>
-     * temporarily ignore return value for caller just focus on found
+     * dir structure <filename[], inum, filename[], inum ...>
      */
     if(isdir(parent)){
         ec->get(parent, dir_content);
-        content = dir_content.data(); 
+        content = dir_content.data();
+        // Compare the file with name in the dir one by one. 
         for(offset = 0; offset < dir_content.size(); offset += sizeof(struct dir_ent)){
             memcpy((char *)buffer,content+offset,sizeof(struct dir_ent));
             if(strncmp(buffer->filename, name, NAME_MAX) == 0){
@@ -221,7 +232,9 @@ yfs_client::lookup(inum parent, const char *name, bool &found, inum &ino_out)
             }
         }
         
-    }    
+    }
+    else r = NOENT;
+    
     free(buffer);
     return r;
 }
@@ -245,6 +258,7 @@ yfs_client::readdir(inum dir, std::list<dirent> &list)
     if(isdir(dir)){
         ec->get(dir, dir_content);
         content = dir_content.data();
+        // Read the entry in the folder one by one and push it to the list
         for(offset = 0; offset < dir_content.size(); offset += sizeof(struct dir_ent)){
             memcpy((char *)buffer,content+offset,sizeof(struct dir_ent));
             entry.name.assign(buffer->filename, strlen(buffer->filename));
@@ -270,14 +284,15 @@ yfs_client::read(inum ino, size_t size, off_t off, std::string &data)
      * your lab2 code goes here.
      * note: read using ec->get().
      */
-    memset(buffer, 0, size);
+    bzero(buffer, size);
     if(isfile(ino)){
         ec->get(ino, content);
-        content_org = content.data(); 
+        content_org = content.data();
+        // Copy the content fro offset off to min(size, content.size() - off) to buffer 
         memcpy(buffer, content_org + off, min(size, content.size() - off));
         data.assign(buffer, min(size, content.size() - off));
     }
-    else r = IOERR;
+    else r = NOENT;
 
     return r;
 }
@@ -299,10 +314,15 @@ yfs_client::write(inum ino, size_t size, off_t off, const char *data,
     if(isfile(ino)){
         ec->get(ino, content);
         content_org = content.data();
+        // if write happen inside the size of file, the size after writing is original size
+        // if write beyond the orginal size, the size after writing is off + size
+        // bzero guarantee the [origin size, off) is '\0'
         content_aft = (char *)malloc(max(off + size, content.size()));
         bzero(content_aft, max(off + size, content.size()));
+        // copy original content and data to write to the content after writing
         memcpy(content_aft, content_org, min(off, content.size()));
         memcpy(content_aft + off, data, size);
+        // deal with the situation if writing happens inside the original file
         if(content.size() > (off + size)){
             memcpy(content_aft + off + size, content_org + off + size, content.size() - off -size);
         }
@@ -311,7 +331,7 @@ yfs_client::write(inum ino, size_t size, off_t off, const char *data,
         bytes_written = size;
         free(content_aft); 
     }
-    else r = IOERR;
+    else r = NOENT;
     
     return r;
 }
@@ -334,10 +354,13 @@ int yfs_client::unlink(inum parent,const char *name)
     if(isdir(parent)){
         ec->get(parent, dir_content);
         content = dir_content.data();
+        // find the file to delete.
         for(offset = 0; offset < dir_content.size(); offset += sizeof(struct dir_ent)){
             memcpy((char*) buffer, content + offset, sizeof(struct dir_ent));
             if(strncmp(buffer->filename, name, NAME_MAX) == 0){
+                // remove the file according to inode
                 ec->remove(buffer->inum);
+                // remove the entry from dir
                	content_deleted = (char *)malloc(dir_content.size() - sizeof(dir_ent));
                 memcpy(content_deleted, content, offset);
                 memcpy(content_deleted + offset, content + offset + sizeof(dir_ent), dir_content.size() - offset - sizeof(struct dir_ent)); 
