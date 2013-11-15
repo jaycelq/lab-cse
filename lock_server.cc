@@ -73,10 +73,11 @@ lock_server::release(int clt, lock_protocol::lockid_t lid, int &r)
   pthread_mutex_lock(&lock);
   it = lock_map.find(lid);
   if(it == lock_map.end()){
+    printf("not found the lock\n");
     ret = lock_protocol::NOENT;
   }
   else{
-    if(it->second.lock_state ==false) ret = lock_protocol::IOERR;
+    if(it->second.lock_state ==false) {ret = lock_protocol::IOERR; printf("unlock free lock\n");}
     else{
       it->second.lock_state = false;
       pthread_cond_signal(&(it->second.lock_cv));
