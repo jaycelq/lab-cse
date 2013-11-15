@@ -134,6 +134,7 @@ yfs_client::setattr(inum ino, size_t size)
 
     // Reset buffer to guarantee the new bytes 0 if size is bigger than original size
     bzero(buffer, size);
+    lc->acquire(ino);
     if(isfile(ino)){
         ec->get(ino, content);
         data = content.data();
@@ -143,6 +144,7 @@ yfs_client::setattr(inum ino, size_t size)
         ec->put(ino, content);
     }
     else r = NOENT;
+    lc->release(ino);
     return r;
 }
 
@@ -170,8 +172,8 @@ yfs_client::create(inum parent, const char *name, mode_t mode, inum &ino_out, ex
 
     buffer = (struct dir_ent *)malloc(sizeof(struct dir_ent));
     bzero(buffer, sizeof(struct dir_ent));
-
     //lookup if name exist in parent dir
+    lc->acquire(parent);
     lookup(parent, name, found, ino_out);
     if(!found){
         ec->get(parent, dir_content);
@@ -188,7 +190,7 @@ yfs_client::create(inum parent, const char *name, mode_t mode, inum &ino_out, ex
         free(content_append);
     }
     else r = EXIST;
-
+    lc->release(parent);
     free(buffer);
     return r;
 }
@@ -250,7 +252,7 @@ yfs_client::readdir(inum dir, std::list<dirent> &list)
      * and push the dirents to the list.
      */
     buffer = (struct dir_ent *)malloc(sizeof(struct dir_ent));
-
+    lc->acquire(dir);
     if(isdir(dir)){
         ec->get(dir, dir_content);
         content = dir_content.data();
@@ -264,6 +266,7 @@ yfs_client::readdir(inum dir, std::list<dirent> &list)
 
     }
     else r = NOENT;
+    lc->release(dir);
     free(buffer);
     return r;
 }
@@ -281,6 +284,7 @@ yfs_client::read(inum ino, size_t size, off_t off, std::string &data)
      * note: read using ec->get().
      */
     bzero(buffer, size);
+    lc->acquire(ino);
     if(isfile(ino)){
         ec->get(ino, content);
         content_org = content.data();
@@ -289,7 +293,7 @@ yfs_client::read(inum ino, size_t size, off_t off, std::string &data)
         data.assign(buffer, min(size, content.size() - off));
     }
     else r = NOENT;
-
+    lc->release(ino);
     return r;
 }
 
@@ -307,6 +311,7 @@ yfs_client::write(inum ino, size_t size, off_t off, const char *data,
      * note: write using ec->put().
      * when off > length of original file, fill the holes with '\0'.
      */
+    lc->acquire(ino);
     if(isfile(ino)){
         ec->get(ino, content);
         content_org = content.data();
@@ -328,7 +333,7 @@ yfs_client::write(inum ino, size_t size, off_t off, const char *data,
         free(content_aft); 
     }
     else r = NOENT;
-    
+    lc->release(ino);
     return r;
 }
 
@@ -347,6 +352,7 @@ int yfs_client::unlink(inum parent,const char *name)
      */
 
     buffer = (struct dir_ent *)malloc(sizeof(struct dir_ent));
+    lc->acquire(parent);
     if(isdir(parent)){
         ec->get(parent, dir_content);
         content = dir_content.data();
@@ -368,6 +374,7 @@ int yfs_client::unlink(inum parent,const char *name)
             }
         }
     }
+    lc->release(parent);
     free(buffer);
     return r;
 }

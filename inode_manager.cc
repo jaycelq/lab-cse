@@ -309,12 +309,13 @@ inode_manager::write_file(uint32_t inum, const char *buf, int size)
   char wbuf[BLOCK_SIZE], rbuf[BLOCK_SIZE];
   
   inode = get_inode(inum);
+  printf("write size %d \n", size);
   // if write buffer is bigger than the max_size of a file ,just write the heading max_size bits.
   inode->size = MIN((uint32_t) size, MAXFILE * BLOCK_SIZE);
   put_inode(inum, inode);
 
   // determine whether need indirect block
-  if(size/BLOCK_SIZE >= NDIRECT){
+  if(size/BLOCK_SIZE > NDIRECT){
     if(inode->blocks[NDIRECT] == 0) inode->blocks[NDIRECT] = bm->alloc_block();
     bm->read_block(inode->blocks[NDIRECT], rbuf);
     indirect = (uint32_t *)rbuf;
