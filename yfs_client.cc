@@ -9,7 +9,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#define NAME_MAX 128
+#define NAME_MAX 32 
 
 struct dir_ent{
     char filename[NAME_MAX];

@@ -302,9 +302,9 @@ inode_manager::write_file(uint32_t inum, const char *buf, int size)
    * you need to consider the situation when the size of buf 
    * is larger or smaller than the size of original inode
    */
-  uint32_t block_num, block_id;
-  uint32_t *indirect;
-  int len, offset;
+  int block_num = -1, block_id = 0;
+  uint32_t *indirect = NULL;
+  int len = 0, offset = 0;
   inode_t *inode;
   char wbuf[BLOCK_SIZE], rbuf[BLOCK_SIZE];
   
@@ -344,7 +344,7 @@ inode_manager::write_file(uint32_t inum, const char *buf, int size)
 
   // if the original file is bigger, free the rest
   block_num++;
-  for(;block_num < MAXFILE; block_num++){
+  for(;block_num < (int) MAXFILE; block_num++){
     if(block_num < NDIRECT){
       if(inode->blocks[block_num] == 0)  break;
       bm->free_block(inode->blocks[block_num]);

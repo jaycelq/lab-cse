@@ -24,6 +24,7 @@ extent_client::getattr(extent_protocol::extentid_t eid,
 {
   extent_protocol::status ret = extent_protocol::OK;
   ret = cl->call(extent_protocol::getattr, eid, attr);
+  if(ret != extent_protocol::OK) printf("ERROR: getting attr %d\n", ret);
   return ret;
 }
 
