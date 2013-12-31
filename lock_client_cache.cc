@@ -163,6 +163,7 @@ lock_client_cache::release(lock_protocol::lockid_t lid)
     // if lock state is RELEASING, release it to server_cache and set the state to NONE 
     // and notify those who are waiting for it
     case RELEASING:
+      lu->dorelease(lid);
       pthread_mutex_unlock(&cl_lock);
       ret = cl->call(lock_protocol::release, lid, id, r);
       pthread_mutex_lock(&cl_lock);
@@ -204,6 +205,7 @@ lock_client_cache::revoke_handler(lock_protocol::lockid_t lid,
 
     // if the the lock is FREE, set it to NONE, and notify server by return lock_protocol::RELEASE
     case FREE:
+      lu->dorelease(lid);
       cl_lock_map[lid]->cl_lock_state = NONE;
       pthread_cond_broadcast(&(cl_lock_map[lid]->cl_lock_cv));
 	    ret = lock_protocol::RELEASE;

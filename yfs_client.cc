@@ -19,7 +19,7 @@ struct dir_ent{
 yfs_client::yfs_client(std::string extent_dst, std::string lock_dst)
 {
   ec = new extent_client(extent_dst);
-  lc = new lock_client_cache(lock_dst);
+  lc = new lock_client_cache(lock_dst, ec);
   if (ec->put(1, "") != extent_protocol::OK)
       printf("error init root dir\n"); // XYB: init root dir
 }
@@ -42,8 +42,7 @@ yfs_client::filename(inum inum)
     return ost.str();
 }
 
-bool
-yfs_client::isfile(inum inum)
+bool yfs_client::isfile_with_lock(inum inum)
 {
     extent_protocol::attr a;
     
@@ -60,10 +59,29 @@ yfs_client::isfile(inum inum)
     return false;
 }
 
+bool yfs_client::isdir_with_lock(inum inum)
+{
+    return ! isfile_with_lock(inum);
+}
+
+bool
+yfs_client::isfile(inum inum)
+{
+    bool isfile;
+    lc->acquire(inum);
+    isfile = isfile_with_lock(inum);
+    lc->release(inum);
+    return isfile; 
+}
+
 bool
 yfs_client::isdir(inum inum)
 {
-    return ! isfile(inum);
+    bool isdir;
+    lc->acquire(inum);
+    isdir = isdir_with_lock(inum);
+    lc->release(inum);
+    return isdir;
 }
 
 int
@@ -139,7 +157,7 @@ yfs_client::setattr(inum ino, size_t size)
     // Reset buffer to guarantee the new bytes 0 if size is bigger than original size
     bzero(buffer, size);
     lc->acquire(ino);
-    if(isfile(ino)){
+    if(isfile_with_lock(ino)){
         ec->get(ino, content);
         data = content.data();
         //copy min(size, content.size()) to buffer and put it to the file
@@ -174,7 +192,7 @@ yfs_client::lookup_with_lock(inum parent, const char *name, bool &found, inum &i
      * file name is fixed-length of 128 bytes
      * dir structure <filename[], inum, filename[], inum ...>
      */
-    if(isdir(parent)){
+    if(isdir_with_lock(parent)){
         ec->get(parent, dir_content);
         content = dir_content.data();
         // Compare the file with name in the dir one by one. 
@@ -211,7 +229,7 @@ yfs_client::create(inum parent, const char *name, mode_t mode, inum &ino_out, ex
      */
     lc->acquire(parent);
     // Return NOENT if parent is not dir
-    if(!isdir(parent)){
+    if(!isdir_with_lock(parent)){
         r = NOENT;
         return r;
     }
@@ -267,7 +285,7 @@ yfs_client::readdir(inum dir, std::list<dirent> &list)
      */
     buffer = (struct dir_ent *)malloc(sizeof(struct dir_ent));
     lc->acquire(dir);
-    if(isdir(dir)){
+    if(isdir_with_lock(dir)){
         ec->get(dir, dir_content);
         content = dir_content.data();
         // Read the entry in the folder one by one and push it to the list
@@ -300,7 +318,7 @@ yfs_client::read(inum ino, size_t size, off_t off, std::string &data)
      */
     bzero(buffer, size);
     lc->acquire(ino);
-    if(isfile(ino)){
+    if(isfile_with_lock(ino)){
         ec->get(ino, content);
         content_org = content.data();
         // Copy the content fro offset off to min(size, content.size() - off) to buffer 
@@ -327,7 +345,7 @@ yfs_client::write(inum ino, size_t size, off_t off, const char *data,
      * when off > length of original file, fill the holes with '\0'.
      */
     lc->acquire(ino);
-    if(isfile(ino)){
+    if(isfile_with_lock(ino)){
         ec->get(ino, content);
         content_org = content.data();
         // if write happen inside the size of file, the size after writing is original size
@@ -368,7 +386,7 @@ int yfs_client::unlink(inum parent,const char *name)
     printf("unlink filename %s\n", name);
     buffer = (struct dir_ent *)malloc(sizeof(struct dir_ent));
     lc->acquire(parent);
-    if(isdir(parent)){
+    if(isdir_with_lock(parent)){
         ec->get(parent, dir_content);
         content = dir_content.data();
         // find the file to delete.

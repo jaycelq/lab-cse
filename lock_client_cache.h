@@ -9,6 +9,7 @@
 #include "rpc.h"
 #include "lock_client.h"
 #include "lang/verify.h"
+#include "lock_client_cache.h"
 
 
 // Classes that inherit lock_release_user can override dorelease so that 

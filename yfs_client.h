@@ -44,7 +44,9 @@ class yfs_client {
   yfs_client(std::string, std::string);
 
   bool isfile(inum);
+  bool isfile_with_lock(inum);
   bool isdir(inum);
+  bool isdir_with_lock(inum);
 
   int getfile(inum, fileinfo &);
   int getdir(inum, dirinfo &);
