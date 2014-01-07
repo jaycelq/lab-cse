@@ -36,6 +36,7 @@ class block_manager {
  private:
   disk *d;
   std::map <uint32_t, int> using_blocks;
+  pthread_mutex_t block_lock;
  public:
   block_manager();
   struct superblock sb;
@@ -62,6 +63,9 @@ class block_manager {
 // Block containing bit for block b
 #define BBLOCK(b) ((b)/BPB + 2)
 
+// Reserved blocks by boot block, super block and inode blocks
+#define RSVD_BLOCKS(nblocks) ((nblocks)/BPB + (INODE_NUM)/IPB + 4)
+
 #define NDIRECT 32
 #define NINDIRECT (BLOCK_SIZE / sizeof(uint))
 #define MAXFILE (NDIRECT + NINDIRECT)
@@ -77,8 +81,11 @@ typedef struct inode {
 
 class inode_manager {
  private:
+  uint32_t inode_start;
   block_manager *bm;
   struct inode* get_inode(uint32_t inum);
+  pthread_mutex_t alloc_lock;
+  pthread_mutex_t inode_lock;
   void put_inode(uint32_t inum, struct inode *ino);
 
  public:

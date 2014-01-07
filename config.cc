@@ -124,6 +124,7 @@ config::value(std::vector<std::string> m)
 void
 config::reconstruct()
 {
+  tprintf("config::reconstruct: instance %d \n", acc->instance());
   if (acc->instance() > 0) {
     std::string m;
     myvid = acc->instance();

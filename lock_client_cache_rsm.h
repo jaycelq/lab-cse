@@ -21,6 +21,22 @@ class lock_release_user {
   virtual ~lock_release_user() {};
 };
 
+enum cl_rsm_lock_status{
+  NONE,
+  FREE,
+  ACQUIRED,
+  ACQUIRING,
+  RELEASING
+};
+
+class client_rsm_lock{
+ public:
+  pthread_cond_t cl_rsm_lock_cv;
+  cl_rsm_lock_status cl_rsm_lock_state;
+  lock_protocol::xid_t xid;
+  client_rsm_lock();
+  ~client_rsm_lock();
+};
 
 class lock_client_cache_rsm;
 
@@ -34,6 +50,12 @@ class lock_client_cache_rsm : public lock_client {
   std::string hostname;
   std::string id;
   lock_protocol::xid_t xid;
+  
+  std::map<lock_protocol::lockid_t, client_rsm_lock *> cl_rsm_lock_map;
+  pthread_mutex_t cl_rsm_mutex;
+  pthread_cond_t cl_rsm_release_cv;
+  fifo<lock_protocol::lockid_t> release_queue;
+
  public:
   static int last_port;
   lock_client_cache_rsm(std::string xdst, class lock_release_user *l = 0);

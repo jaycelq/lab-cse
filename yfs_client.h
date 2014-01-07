@@ -4,7 +4,7 @@
 #include <string>
 
 #include "lock_protocol.h"
-#include "lock_client.h"
+#include "lock_client_cache.h"
 
 //#include "yfs_protocol.h"
 #include "extent_client.h"
@@ -13,7 +13,7 @@
 
 class yfs_client {
   extent_client *ec;
-  lock_client *lc;
+  lock_client_cache *lc;
  public:
 
   typedef unsigned long long inum;
@@ -44,14 +44,17 @@ class yfs_client {
   yfs_client(std::string, std::string);
 
   bool isfile(inum);
+  bool isfile_with_lock(inum);
   bool isdir(inum);
+  bool isdir_with_lock(inum);
 
   int getfile(inum, fileinfo &);
   int getdir(inum, dirinfo &);
 
   int setattr(inum, size_t);
   int lookup(inum, const char *, bool &, inum &);
-  int create(inum, const char *, mode_t, inum &);
+  int lookup_with_lock(inum, const char *, bool &, inum &);
+  int create(inum, const char *, mode_t, inum &, extent_protocol::types);
   int readdir(inum, std::list<dirent> &);
   int write(inum, size_t, off_t, const char *, size_t &);
   int read(inum, size_t, off_t, std::string &);

@@ -69,6 +69,7 @@
 #include <netinet/tcp.h>
 #include <time.h>
 #include <netdb.h>
+#include <unistd.h>
 
 #include "jsl_log.h"
 #include "gettime.h"
@@ -661,9 +662,30 @@ rpcs::checkduplicate_and_update(unsigned int clt_nonce, unsigned int xid,
                                 unsigned int xid_rep, char **b, int *sz)
 {
     ScopedLock rwl(&reply_window_m_);
+    std::list<reply_t> &reply_list = reply_window_[clt_nonce];
 
     // Your lab3 code goes here
-    return NEW;
+    std::list<reply_t>::iterator it;
+    if((reply_list.begin() != reply_list.end())&&(xid < reply_list.begin()->xid)) return FORGOTTEN;
+
+    for(it = reply_list.begin(); (it != reply_list.end() && it->xid < xid_rep);){
+        free(it->buf);
+        it = reply_list.erase(it);
+    }
+
+    for(it = reply_list.begin(); (it != reply_list.end() && xid > it->xid); it++);
+    if(it!= reply_list.end() && it->xid == xid){
+        if(it->cb_present == true){
+            *b = it->buf;
+            *sz = it->sz;
+            return DONE;
+        }
+        else return INPROGRESS;
+    }
+    else{
+        reply_list.insert(it, reply_t(xid));
+        return NEW;
+    }
 }
 
 // rpcs::dispatch calls add_reply when it is sending a reply to an RPC,
@@ -674,9 +696,19 @@ rpcs::checkduplicate_and_update(unsigned int clt_nonce, unsigned int xid,
 void
 rpcs::add_reply(unsigned int clt_nonce, unsigned int xid, char *b, int sz)
 {
-    ScopedLock rwl(&reply_window_m_);
-
+    ScopedLock rwl(&reply_window_m_); 
+    std::list<reply_t> & reply_list = reply_window_[clt_nonce];
     // Your lab3 code goes here
+    for(std::list<reply_t>::iterator it = reply_list.begin(); it != reply_list.end(); it++){
+        if(it->xid == xid){
+            it->sz = sz;
+            it->cb_present = true;
+            it->buf = (char*) malloc(sz);
+            memcpy(it->buf, b, sz);
+            break;
+        }
+    }
+    
 }
 
 void
