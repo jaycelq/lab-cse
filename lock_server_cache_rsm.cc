@@ -11,8 +11,8 @@
 
 server_rsm_lock::server_rsm_lock()
 {
-	sv_rsm_lock_state = FREE;
-	isRevoking = false;
+  sv_rsm_lock_state = FREE;
+  isRevoking = false;
 }
 
 server_rsm_lock::~server_rsm_lock()
@@ -45,6 +45,8 @@ lock_server_cache_rsm::lock_server_cache_rsm(class rsm *_rsm)
   r = pthread_create(&th, NULL, &retrythread, (void *) this);
   VERIFY (r == 0);
   
+  //rsm->set_state_transfer(this);
+  
   pthread_mutex_init(&sv_rsm_mutex, NULL);
   pthread_cond_init(&revoke_cv, NULL);
   pthread_cond_init(&retry_cv, NULL);
@@ -70,11 +72,13 @@ lock_server_cache_rsm::revoker()
     for(it = revoke_list.begin(); it != revoke_list.end(); it++){
       lid = *it;
       if(sv_rsm_lock_map[lid]->isRevoking == false && sv_rsm_lock_map[lid]->sv_rsm_lock_state == LOCKED) {
-        do {
-          owner = sv_rsm_lock_map[lid]->owner;
-          tprintf("Server_cache::owner %s is revoking lock %llu xid %llu lock state %d\n", owner.c_str(), lid, sv_rsm_lock_map[lid]->xid_map[owner], sv_rsm_lock_map[lid]->sv_rsm_lock_state);
-          ret = client_rsm_map[owner]->call(rlock_protocol::revoke, lid, sv_rsm_lock_map[lid]->xid_map[owner], r);
-        } while(ret != lock_protocol::OK);
+        if(rsm->amiprimary() == true) {
+          do {
+            owner = sv_rsm_lock_map[lid]->owner;
+            tprintf("Server_cache::owner %s is revoking lock %llu xid %llu lock state %d\n", owner.c_str(), lid, sv_rsm_lock_map[lid]->xid_map[owner], sv_rsm_lock_map[lid]->sv_rsm_lock_state);
+            ret = client_rsm_map[owner]->call(rlock_protocol::revoke, lid, sv_rsm_lock_map[lid]->xid_map[owner], r);
+          } while(ret != lock_protocol::OK);
+        }
         sv_rsm_lock_map[lid]->isRevoking = true;
       }
     }
@@ -103,10 +107,12 @@ lock_server_cache_rsm::retryer()
     for(it = retry_list.begin(); it != retry_list.end();) {
       lid = *it;
       client = sv_rsm_lock_map[lid]->waiting_list.front();
-      do {
-        tprintf("Server_cache::client %s is retrying lock %llu xid %llu lock state %d\n",client.c_str(), lid, sv_rsm_lock_map[lid]->xid_map[client], sv_rsm_lock_map[lid]->sv_rsm_lock_state);
-        ret = client_rsm_map[client]->call(rlock_protocol::retry, lid, sv_rsm_lock_map[lid]->xid_map[client], r); 
-      } while(ret != lock_protocol::OK);
+      if(rsm->amiprimary() == true) {
+        do {
+          tprintf("Server_cache::client %s is retrying lock %llu xid %llu lock state %d\n",client.c_str(), lid, sv_rsm_lock_map[lid]->xid_map[client], sv_rsm_lock_map[lid]->sv_rsm_lock_state);
+          ret = client_rsm_map[client]->call(rlock_protocol::retry, lid, sv_rsm_lock_map[lid]->xid_map[client], r); 
+        } while(ret != lock_protocol::OK);
+      }
       it = retry_list.erase(it);
     }
     
@@ -123,9 +129,7 @@ int lock_server_cache_rsm::acquire(lock_protocol::lockid_t lid, std::string id,
   lock_protocol::xid_t xid_last;
   std::list<std::string>::iterator it;
   std::list<lock_protocol::lockid_t>::iterator lock_it;
-
-	if(rsm->amiprimary() == false) return rsm_client_protocol::NOTPRIMARY;
-  
+  printf("lock acquire\n");
   pthread_mutex_lock(&sv_rsm_mutex);
   if(client_rsm_map.count(id) == 0) {
     handle h(id);
@@ -210,7 +214,7 @@ lock_server_cache_rsm::release(lock_protocol::lockid_t lid, std::string id,
   lock_protocol::status ret = lock_protocol::OK;
   std::list<lock_protocol::lockid_t>::iterator it;
 
-	if(rsm->amiprimary() == false) return rsm_client_protocol::NOTPRIMARY;
+  if(rsm->amiprimary() == false) return rsm_client_protocol::NOTPRIMARY;
   
   pthread_mutex_lock(&sv_rsm_mutex);
   if(client_rsm_map.count(id) == 0) {
@@ -258,12 +262,111 @@ lock_server_cache_rsm::marshal_state()
 {
   std::ostringstream ost;
   std::string r;
-  return r;
+  pthread_mutex_lock(&sv_rsm_mutex);
+  
+  marshall rep;
+  
+  rep << sv_rsm_lock_map.size();
+  std::map<lock_protocol::lockid_t, server_rsm_lock *>::iterator it;
+  
+  for(it = sv_rsm_lock_map.begin(); it != sv_rsm_lock_map.end(); it++) {
+    lock_protocol::lockid_t lid = it->first;
+    server_rsm_lock *sv_rsm_lock = sv_rsm_lock_map[lid];
+    
+    rep << lid;
+    rep << sv_rsm_lock->isRevoking;
+    rep << sv_rsm_lock->sv_rsm_lock_state;
+    rep << sv_rsm_lock->owner;
+    
+    rep << sv_rsm_lock->waiting_list.size();
+    std::list<std::string>::iterator wait_list_it;
+    for(wait_list_it = sv_rsm_lock->waiting_list.begin(); wait_list_it != sv_rsm_lock->waiting_list.end(); wait_list_it++) {
+      rep << *wait_list_it;
+    }
+    
+    rep << sv_rsm_lock->xid_map.size();
+    std::map<std::string, lock_protocol::xid_t>::iterator xid_it;
+    for(xid_it = sv_rsm_lock->xid_map.begin(); xid_it != sv_rsm_lock->xid_map.end(); xid_it++) {
+      std::string client = xid_it->first;
+      lock_protocol::xid_t xid = sv_rsm_lock->xid_map[client];
+      rep << client;
+      rep << xid;
+    }
+  }
+  
+  rep << revoke_list.size();
+  std::list<lock_protocol::lockid_t>::iterator revoke_list_it;
+  for(revoke_list_it = revoke_list.begin(); revoke_list_it != revoke_list.end(); revoke_list_it++) {
+    rep << *revoke_list_it;
+  }
+  
+  rep << retry_list.size();
+  std::list<lock_protocol::lockid_t>::iterator retry_list_it;
+  for(retry_list_it = retry_list.begin(); retry_list_it != retry_list.end(); retry_list_it++) {
+    rep << *retry_list_it;
+  }
+  
+  pthread_mutex_unlock(&sv_rsm_mutex);
+  return rep.str();
 }
 
 void
 lock_server_cache_rsm::unmarshal_state(std::string state)
 {
+  unsigned int i, j;
+  unmarshall rep(state);
+  unsigned int lock_size, revoke_list_size, retry_list_size;
+  
+  pthread_mutex_lock(&sv_rsm_mutex);
+  
+  rep >> lock_size;
+  for(i = 0; i < lock_size; i++) {
+    lock_protocol::lockid_t lid;
+    rep >> lid;
+    if(sv_rsm_lock_map[lid] != NULL) delete sv_rsm_lock_map[lid];
+    sv_rsm_lock_map[lid] = new server_rsm_lock();
+    rep >> sv_rsm_lock_map[lid]->isRevoking;
+    int lock_state;
+    rep >> lock_state;
+    sv_rsm_lock_map[lid]->sv_rsm_lock_state = (server_rsm_lock_status) lock_state;
+    rep >> sv_rsm_lock_map[lid]->owner;
+    
+    unsigned int wait_list_size;
+    rep >> wait_list_size;
+    for(j = 0; j < wait_list_size; j++) {
+      std::string client;
+      rep >> client;
+      sv_rsm_lock_map[lid]->waiting_list.push_back(client);
+    }
+    
+    unsigned int xid_map_size;
+    rep >> xid_map_size;
+    for(j = 0; j < xid_map_size; j++) {
+      std::string client_xid;
+      lock_protocol::xid_t xid;
+      rep >> client_xid;
+      rep >> xid;
+      sv_rsm_lock_map[lid]->xid_map[client_xid] = xid;
+    }
+  }
+  
+  rep >> revoke_list_size;
+  revoke_list.clear();
+  for(i = 0; i < revoke_list_size; i++) {
+    lock_protocol::lockid_t lid;
+    rep >> lid;
+    revoke_list.push_back(lid);
+  }
+  
+  rep >> retry_list_size;
+  retry_list.clear();
+  for(i = 0; i < retry_list_size; i++) {
+    lock_protocol::lockid_t lid;
+    rep >> lid;
+    retry_list.push_back(lid);
+  }
+  
+  pthread_mutex_unlock(&sv_rsm_mutex);
 }
 
 lock_protocol::status
