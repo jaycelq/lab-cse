@@ -154,12 +154,12 @@ rsm::recovery()
   while (1) {
     while (!cfg->ismember(cfg->myaddr(), vid_commit)) {
       if (join(primary)) {
-	tprintf("recovery: joined\n");
+  tprintf("recovery: joined\n");
         commit_change_wo(cfg->vid());
       } else {
-	VERIFY(pthread_mutex_unlock(&rsm_mutex)==0);
-	sleep (5); // XXX make another node in cfg primary?
-	VERIFY(pthread_mutex_lock(&rsm_mutex)==0);
+  VERIFY(pthread_mutex_unlock(&rsm_mutex)==0);
+  sleep (5); // XXX make another node in cfg primary?
+  VERIFY(pthread_mutex_lock(&rsm_mutex)==0);
       }
     }
     vid_insync = vid_commit;
@@ -237,7 +237,7 @@ rsm::statetransfer(std::string m)
   handle h(m);
   int ret;
   tprintf("rsm::statetransfer: contact %s w. my last_myvs(%d,%d)\n", 
-	 m.c_str(), last_myvs.vid, last_myvs.seqno);
+   m.c_str(), last_myvs.vid, last_myvs.seqno);
   VERIFY(pthread_mutex_unlock(&rsm_mutex)==0);
   rpcc *cl = h.safebind();
   if (cl) {
@@ -247,7 +247,7 @@ rsm::statetransfer(std::string m)
   VERIFY(pthread_mutex_lock(&rsm_mutex)==0);
   if (cl == 0 || ret != rsm_protocol::OK) {
     tprintf("rsm::statetransfer: couldn't reach %s %lx %d\n", m.c_str(), 
-	   (long unsigned) cl, ret);
+     (long unsigned) cl, ret);
     return false;
   }
   if (stf && last_myvs != r.last) {
@@ -255,7 +255,7 @@ rsm::statetransfer(std::string m)
   }
   last_myvs = r.last;
   tprintf("rsm::statetransfer transfer from %s success, vs(%d,%d)\n", 
-	 m.c_str(), last_myvs.vid, last_myvs.seqno);
+   m.c_str(), last_myvs.vid, last_myvs.seqno);
   return true;
 }
 
@@ -279,13 +279,13 @@ rsm::join(std::string m) {
   rpcc *cl = h.safebind();
   if (cl != 0) {
     ret = cl->call(rsm_protocol::joinreq, cfg->myaddr(), last_myvs, 
-		   r, rpcc::to(120000));
+       r, rpcc::to(120000));
   }
   VERIFY(pthread_mutex_lock(&rsm_mutex)==0);
 
   if (cl == 0 || ret != rsm_protocol::OK) {
     tprintf("rsm::join: couldn't reach %s %p %d\n", m.c_str(), 
-	   cl, ret);
+     cl, ret);
     return false;
   }
   tprintf("rsm::join: succeeded %s\n", r.log.c_str());
@@ -310,7 +310,7 @@ rsm::commit_change_wo(unsigned vid)
   if (vid <= vid_commit)
     return;
   tprintf("commit_change: new view (%d)  last vs (%d,%d) %s insync %d\n", 
-	 vid, last_myvs.vid, last_myvs.seqno, primary.c_str(), insync);
+   vid, last_myvs.vid, last_myvs.seqno, primary.c_str(), insync);
   vid_commit = vid;
   inviewchange = true;
   set_primary(vid);
@@ -345,8 +345,38 @@ rsm::execute(int procno, std::string req, std::string &r)
 rsm_client_protocol::status
 rsm::client_invoke(int procno, std::string req, std::string &r)
 {
-  int ret = rsm_client_protocol::OK;
+  int ret = rsm_client_protocol::OK, i, ret_status, dummy;
+  std::vector<std::string> m;
+  bool invoke_fail = false;
   // You fill this in for the part of RSM
+  if(inviewchange == true) return rsm_client_protocol::BUSY;
+  if(amiprimary() == false) return rsm_client_protocol::NOTPRIMARY;
+ 
+  pthread_mutex_lock(&invoke_mutex); 
+  last_myvs = myvs;
+  myvs.seqno++;
+  
+  m = cfg->get_view(vid_commit);
+  
+  for(i = 0; i < m.size(); i++){
+    if(m[i] == primary) continue;
+    handle h(m[i]);
+    rpcc* cl = h.safebind();
+    if(cl == NULL) {
+      invoke_fail = true;
+      continue;
+    }
+    ret_status = cl->call(rsm_protocol::invoke, procno, last_myvs, req, dummy, rpcc::to(1000));
+    if(ret_status != rsm_protocol::OK){
+      invoke_fail = true;
+      continue;
+    }
+  }
+
+  if(invoke_fail == true) ret = rsm_client_protocol::BUSY;
+  
+  execute(procno, req, r);
+  pthread_mutex_unlock(&invoke_mutex);
   return ret;
 }
 
@@ -361,7 +391,21 @@ rsm_protocol::status
 rsm::invoke(int proc, viewstamp vs, std::string req, int &dummy)
 {
   rsm_protocol::status ret = rsm_protocol::OK;
+  std::string r;
   // You fill this in for the part of RSM
+  printf("invoke in slave\n");
+  if(vs.seqno != myvs.seqno) {
+    printf("viewstamp not equal\n");
+    return rsm_protocol::ERR;
+  }
+  
+  if(inviewchange) return rsm_protocol::ERR;
+
+  execute(proc, req, r);
+  
+  last_myvs = myvs;
+  myvs.seqno++;
+  
   return ret;
 }
 
@@ -376,7 +420,7 @@ rsm_protocol::transferres &r)
   int ret = rsm_protocol::OK;
   // Code will be provided in the part of RSM
   tprintf("transferreq from %s (%d,%d) vs (%d,%d)\n", src.c_str(), 
-	 last.vid, last.seqno, last_myvs.vid, last_myvs.seqno);
+   last.vid, last.seqno, last_myvs.vid, last_myvs.seqno);
   if (!insync || vid != vid_insync) {
      return rsm_protocol::BUSY;
   }
@@ -413,7 +457,7 @@ rsm::joinreq(std::string m, viewstamp last, rsm_protocol::joinres &r)
 
   ScopedLock ml(&rsm_mutex);
   tprintf("joinreq: src %s last (%d,%d) mylast (%d,%d)\n", m.c_str(), 
-	 last.vid, last.seqno, last_myvs.vid, last_myvs.seqno);
+   last.vid, last.seqno, last_myvs.vid, last_myvs.seqno);
   if (cfg->ismember(m, vid_commit)) {
     tprintf("joinreq: is still a member\n");
     r.log = cfg->dump();
@@ -452,7 +496,7 @@ rsm::client_members(int i, std::vector<std::string> &r)
   m.push_back(primary);
   r = m;
   tprintf("rsm::client_members return %s m %s\n", print_members(m).c_str(),
-	 primary.c_str());
+   primary.c_str());
   return rsm_client_protocol::OK;
 }
 
@@ -503,8 +547,8 @@ rsm::net_repair_wo(bool heal)
   for (unsigned i  = 0; i < m.size(); i++) {
     if (m[i] != cfg->myaddr()) {
         handle h(m[i]);
-	tprintf("rsm::net_repair_wo: %s %d\n", m[i].c_str(), heal);
-	if (h.safebind()) h.safebind()->set_reachable(heal);
+  tprintf("rsm::net_repair_wo: %s %d\n", m[i].c_str(), heal);
+  if (h.safebind()) h.safebind()->set_reachable(heal);
     }
   }
   rsmrpc->set_reachable(heal);
@@ -515,7 +559,7 @@ rsm::test_net_repairreq(int heal, int &r)
 {
   ScopedLock ml(&rsm_mutex);
   tprintf("rsm::test_net_repairreq: %d (dopartition %d, partitioned %d)\n", 
-	 heal, dopartition, partitioned);
+   heal, dopartition, partitioned);
   if (heal) {
     net_repair_wo(heal);
     partitioned = false;

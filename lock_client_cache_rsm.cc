@@ -52,6 +52,7 @@ lock_client_cache_rsm::lock_client_cache_rsm(std::string xdst,
   // You fill this in Step Two, the part of RSM
   // - Create rsmc, and use the object to do RPC 
   //   calls instead of the rpcc object of lock_client
+  rsmc = new rsm_client(xdst);
   pthread_t th;
   int r = pthread_create(&th, NULL, &releasethread, (void *) this);
   VERIFY (r == 0);
@@ -75,7 +76,7 @@ lock_client_cache_rsm::releaser()
     while(release_queue.size() == 0) pthread_cond_wait(&cl_rsm_release_cv, &cl_rsm_mutex);
     release_queue.deq(&lid);
     do {
-      ret = cl->call(lock_protocol::release, lid, id, cl_rsm_lock_map[lid]->xid, r);
+      ret = rsmc->call(lock_protocol::release, lid, id, cl_rsm_lock_map[lid]->xid, r);
     } while(ret != lock_protocol::OK);
     cl_rsm_lock_map[lid]->cl_rsm_lock_state = NONE;
     pthread_cond_broadcast(&(cl_rsm_lock_map[lid]->cl_rsm_lock_cv));
@@ -107,7 +108,7 @@ lock_client_cache_rsm::acquire(lock_protocol::lockid_t lid)
         cl_rsm_lock_map[lid]->cl_rsm_lock_state = ACQUIRING;
         cl_rsm_lock_map[lid]->xid = xid;
         tprintf("Client_cache::client call acquire xid %llu \n", xid);
-        ret = cl->call(lock_protocol::acquire, lid, id, xid, r);
+        ret = rsmc->call(lock_protocol::acquire, lid, id, xid, r);
         // if acquire return RETRY, set lock_state ACQURING and wait until server send retry;
         if(ret == lock_protocol::RETRY) {
           pthread_cond_wait(&(cl_rsm_lock_map[lid]->cl_rsm_lock_cv), &cl_rsm_mutex);
@@ -163,7 +164,7 @@ lock_client_cache_rsm::release(lock_protocol::lockid_t lid)
     case RELEASING:
       tprintf("Client_cache::client call release in release xid %llu\n", cl_rsm_lock_map[lid]->xid);
       do{
-        ret = cl->call(lock_protocol::release, lid, id, cl_rsm_lock_map[lid]->xid, r);
+        ret = rsmc->call(lock_protocol::release, lid, id, cl_rsm_lock_map[lid]->xid, r);
       }
       while(ret != lock_protocol::OK);
       cl_rsm_lock_map[lid]->cl_rsm_lock_state = NONE;

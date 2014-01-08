@@ -97,10 +97,9 @@ lock_server_cache_rsm::retryer()
   pthread_mutex_lock(&sv_rsm_mutex);
   while(true) {
     while(retry_list.size() == 0) {
-      printf("wait for retry_cv\n");
       pthread_cond_wait(&retry_cv, &sv_rsm_mutex);
     }
-    //printf("retry_list size %d\n", retry_list.size());
+
     for(it = retry_list.begin(); it != retry_list.end();) {
       lid = *it;
       client = sv_rsm_lock_map[lid]->waiting_list.front();
@@ -108,7 +107,6 @@ lock_server_cache_rsm::retryer()
         tprintf("Server_cache::client %s is retrying lock %llu xid %llu lock state %d\n",client.c_str(), lid, sv_rsm_lock_map[lid]->xid_map[client], sv_rsm_lock_map[lid]->sv_rsm_lock_state);
         ret = client_rsm_map[client]->call(rlock_protocol::retry, lid, sv_rsm_lock_map[lid]->xid_map[client], r); 
       } while(ret != lock_protocol::OK);
-      printf("retry_list size %d\n", retry_list.size());
       it = retry_list.erase(it);
     }
     
@@ -125,6 +123,8 @@ int lock_server_cache_rsm::acquire(lock_protocol::lockid_t lid, std::string id,
   lock_protocol::xid_t xid_last;
   std::list<std::string>::iterator it;
   std::list<lock_protocol::lockid_t>::iterator lock_it;
+
+	if(rsm->amiprimary() == false) return rsm_client_protocol::NOTPRIMARY;
   
   pthread_mutex_lock(&sv_rsm_mutex);
   if(client_rsm_map.count(id) == 0) {
@@ -141,7 +141,6 @@ int lock_server_cache_rsm::acquire(lock_protocol::lockid_t lid, std::string id,
     sv_rsm_lock_map[lid] = new server_rsm_lock();
   }
   
-  tprintf("Server_cache::client %s is getting lock %llu xid %llu lock state %d\n",id.c_str() , lid, xid, sv_rsm_lock_map[lid]->sv_rsm_lock_state);
   if(sv_rsm_lock_map[lid]->xid_map.count(id) != 0) {
     xid_last = sv_rsm_lock_map[lid]->xid_map[id];
     if(xid < xid_last) return ret;
@@ -159,6 +158,7 @@ int lock_server_cache_rsm::acquire(lock_protocol::lockid_t lid, std::string id,
             break;
           }
         }
+        
         if(sv_rsm_lock_map[lid]->waiting_list.size() == 0) {
           for(lock_it = revoke_list.begin(); lock_it != revoke_list.end(); lock_it++) {
             if(*lock_it == lid) {
@@ -168,6 +168,7 @@ int lock_server_cache_rsm::acquire(lock_protocol::lockid_t lid, std::string id,
           }
         }
         
+        tprintf("Server_cache::client %s is getting lock %llu xid %llu lock state %d waiting_list size %d revoke_list.size %d\n",id.c_str() , lid, xid, sv_rsm_lock_map[lid]->sv_rsm_lock_state, sv_rsm_lock_map[lid]->waiting_list.size(), revoke_list.size());
         if(revoke_list.size() != 0) pthread_cond_broadcast(&revoke_cv);
         
         break;
@@ -189,7 +190,7 @@ int lock_server_cache_rsm::acquire(lock_protocol::lockid_t lid, std::string id,
         }
       }
       if(lock_found == false) revoke_list.push_back(lid);
-        
+      tprintf("Server_cache::client %s is getting lock %llu xid %llu lock state %d waiting_list size %d revoke_list.size %d\n",id.c_str() , lid, xid, sv_rsm_lock_map[lid]->sv_rsm_lock_state, sv_rsm_lock_map[lid]->waiting_list.size(), revoke_list.size());  
       pthread_cond_broadcast(&revoke_cv);
         
       ret = lock_protocol::RETRY;
@@ -208,6 +209,8 @@ lock_server_cache_rsm::release(lock_protocol::lockid_t lid, std::string id,
   lock_protocol::xid_t xid_last;
   lock_protocol::status ret = lock_protocol::OK;
   std::list<lock_protocol::lockid_t>::iterator it;
+
+	if(rsm->amiprimary() == false) return rsm_client_protocol::NOTPRIMARY;
   
   pthread_mutex_lock(&sv_rsm_mutex);
   if(client_rsm_map.count(id) == 0) {
@@ -223,7 +226,6 @@ lock_server_cache_rsm::release(lock_protocol::lockid_t lid, std::string id,
   xid_last = sv_rsm_lock_map[lid]->xid_map[id];
   if(xid < xid_last) return ret;
     
-  tprintf("Server_cache::client %s is releasing lock %llu xid %llu lock state %d\n",id.c_str() , lid, xid, sv_rsm_lock_map[lid]->sv_rsm_lock_state);
   switch(sv_rsm_lock_map[lid]->sv_rsm_lock_state){
     case FREE:
       tprintf("Server_cache::Free free lock\n");
@@ -242,7 +244,8 @@ lock_server_cache_rsm::release(lock_protocol::lockid_t lid, std::string id,
         if(lock_found == false) retry_list.push_back(lid);
         pthread_cond_broadcast(&retry_cv);
       }
-
+      
+      tprintf("Server_cache::client %s is releasing lock %llu xid %llu lock state %d waiting_list.size %d retry_list.size %d\n",id.c_str() , lid, xid, sv_rsm_lock_map[lid]->sv_rsm_lock_state, sv_rsm_lock_map[lid]->waiting_list.size(), retry_list.size());
       sv_rsm_lock_map[lid]->isRevoking = false;
       break;
   }    
