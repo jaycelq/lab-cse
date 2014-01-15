@@ -77,15 +77,21 @@ void
 config::restore(std::string s)
 {
   ScopedLock ml(&cfg_mutex);
+	tprintf("cfg_mutex hold in restore\n");
   acc->restore(s);
   reconstruct();
+	tprintf("cfg_mutex free in restore\n");
 }
 
 std::vector<std::string>
 config::get_view(unsigned instance)
 {
+  std::vector<std::string> r;
   ScopedLock ml(&cfg_mutex);
-  return get_view_wo(instance);
+  tprintf("cfg_mutex hold in getview\n");
+	r = get_view_wo(instance);
+	tprintf("cfg_mutex free in getview\n");
+  return r;
 }
 
 // caller should hold cfg_mutex
@@ -140,7 +146,7 @@ config::paxos_commit(unsigned instance, std::string value)
   std::string m;
   std::vector<std::string> newmem;
   ScopedLock ml(&cfg_mutex);
-
+	tprintf("cfg_mutex hold in paxos_commmit\n");
   newmem = members(value);
   tprintf("config::paxos_commit: %d: %s\n", instance, 
 	 print_members(newmem).c_str());
@@ -157,10 +163,13 @@ config::paxos_commit(unsigned instance, std::string value)
   myvid = instance;
   if (vc) {
     unsigned vid = myvid;
+		tprintf("cfg_mutex free in paxos_commmit\n");
     VERIFY(pthread_mutex_unlock(&cfg_mutex)==0);
     vc->commit_change(vid);
     VERIFY(pthread_mutex_lock(&cfg_mutex)==0);
+		tprintf("cfg_mutex hold in paxos_commmit\n");
   }
+	tprintf("cfg_mutex free in paxos_commmit\n");
 }
 
 bool
@@ -168,8 +177,10 @@ config::ismember(std::string m, unsigned vid)
 {
   bool r;
   ScopedLock ml(&cfg_mutex);
+	tprintf("cfg_mutex hold in ismember\n");
   std::vector<std::string> v = get_view_wo(vid);
   r = isamember(m, v);
+	tprintf("cfg_mutex free in ismember\n");
   return r;
 }
 
@@ -179,6 +190,7 @@ config::add(std::string new_m, unsigned vid)
   std::vector<std::string> m;
   std::vector<std::string> curm;
   ScopedLock ml(&cfg_mutex);
+  tprintf("cfg_mutex hold in add\n");
   if (vid != myvid)
     return false;
   tprintf("config::add %s\n", new_m.c_str());
@@ -187,14 +199,17 @@ config::add(std::string new_m, unsigned vid)
   curm = mems;
   std::string v = value(m);
   int nextvid = myvid + 1;
+	tprintf("cfg_mutex free in add\n");
   VERIFY(pthread_mutex_unlock(&cfg_mutex)==0);
   bool r = pro->run(nextvid, curm, v);
   VERIFY(pthread_mutex_lock(&cfg_mutex)==0);
+	tprintf("cfg_mutex hold in add\n");
   if (r) {
     tprintf("config::add: proposer returned success\n");
   } else {
     tprintf("config::add: proposer returned failure\n");
   }
+	tprintf("cfg_mutex free in add\n");
   return r;
 }
 
@@ -232,14 +247,16 @@ config::heartbeater()
   unsigned vid;
   std::vector<std::string> cmems;
   ScopedLock ml(&cfg_mutex);
-  
+    tprintf("cfg_mutex hold in heart_beater\n");
   while (1) {
 
     gettimeofday(&now, NULL);
     next_timeout.tv_sec = now.tv_sec + 3;
     next_timeout.tv_nsec = 0;
     tprintf("heartbeater: go to sleep\n");
+		tprintf("cfg_mutex free in heart_beater\n");
     pthread_cond_timedwait(&config_cond, &cfg_mutex, &next_timeout);
+    tprintf("cfg_mutex hold in heart_beater\n");
 
     stable = true;
     vid = myvid;
@@ -284,6 +301,7 @@ config::heartbeater()
 paxos_protocol::status
 config::heartbeat(std::string m, unsigned vid, int &r)
 {
+	tprintf("heartbeat from %s(%d) myvid %d\n", m.c_str(), vid, myvid);
   ScopedLock ml(&cfg_mutex);
   int ret = paxos_protocol::ERR;
   r = (int) myvid;
@@ -309,6 +327,7 @@ config::doheartbeat(std::string m)
 
   tprintf("doheartbeater to %s (%d)\n", m.c_str(), vid);
   handle h(m);
+	tprintf("cfg_mutex free in doheartbeat\n");
   VERIFY(pthread_mutex_unlock(&cfg_mutex)==0);
   rpcc *cl = h.safebind();
   if (cl) {
@@ -316,6 +335,7 @@ config::doheartbeat(std::string m)
 	           rpcc::to(1000));
   } 
   VERIFY(pthread_mutex_lock(&cfg_mutex)==0);
+		tprintf("cfg_mutex hold in doheartbeat\n");
   if (ret != paxos_protocol::OK) {
     if (ret == rpc_const::atmostonce_failure || 
 	ret == rpc_const::oldsrv_failure) {

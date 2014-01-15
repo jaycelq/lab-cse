@@ -170,6 +170,8 @@ proposer::prepare(unsigned instance, std::vector<std::string> &accepts,
     if(cl == NULL) continue;
     
     paxos_protocol::prepareres res;
+		res.oldinstance = false;
+		res.accept = false;
     r = cl->call(paxos_protocol::preparereq, me, arg, res, rpcc::to(1000));
     if(r == paxos_protocol::OK) {
       if(res.oldinstance == true) {
@@ -228,7 +230,7 @@ proposer::decide(unsigned instance, std::vector<std::string> accepts,
 	      std::string v)
 {
   // You fill this in for the part of paxos
-  int r, ret;
+  int ret;
   unsigned i;
   paxos_protocol::decidearg arg;
   arg.instance = instance;
@@ -241,8 +243,8 @@ proposer::decide(unsigned instance, std::vector<std::string> accepts,
     rpcc* cl = h.safebind();
     if(cl == NULL) continue;
     
-    r = cl->call(paxos_protocol::decidereq, me, arg, ret, rpcc::to(1000));
-    VERIFY(r == paxos_protocol::OK);
+    cl->call(paxos_protocol::decidereq, me, arg, ret, rpcc::to(1000));
+    //VERIFY(r == paxos_protocol::OK);
   }
 }
 
@@ -286,7 +288,7 @@ acceptor::preparereq(std::string src, paxos_protocol::preparearg a,
   if(a.instance <= instance_h) {
     r.oldinstance = true;
     r.n_a = n_a;
-    r.v_a = v_a;
+    r.v_a = values[a.instance];
   }
   else if(a.n >= n_h) {
     n_h = a.n;

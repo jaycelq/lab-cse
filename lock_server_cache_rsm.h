@@ -25,7 +25,6 @@ class lock_server_cache_rsm : public rsm_state_transfer {
  private:
   int nacquire;
   class rsm *rsm;
-  std::map<std::string, rpcc *> client_rsm_map;
   std::map<lock_protocol::lockid_t, server_rsm_lock *> sv_rsm_lock_map;
   std::list<lock_protocol::lockid_t> revoke_list;
   std::list<lock_protocol::lockid_t> retry_list;
