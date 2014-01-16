@@ -1,0 +1,15 @@
+Lab2: Basic File Server
+
+This lab implement a file system using FUSE and make the following operations work:
+CREATE/MKNOD, LOOKUP, READDIR, SETATTR, WRITE, READ, MKDIR and UNLINK
+
+The FUSE interface, in fuse.cc. It translates FUSE operations from the FUSE kernel modules into YFS client calls. 
+
+The way to run it:
+make
+./start.sh
+./test-lab-2-a.pl ./yfs1
+./test-lab-2-b.pl ./yfs1
+./test-lab-2-c.pl ./yfs1
+./stop.sh
+
