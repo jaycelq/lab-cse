@@ -1,0 +1,11 @@
+Lab-1: Inode Manager
+
+Lab1 implement the inode layer of the file system, where support the following API:
+CREATE, GETATTR, PUT, GET, REMOVE
+
+The layout of disk should be like this:
+|<-sb->|<-free block bitmap->|<-inode table->|<-data->|
+
+The way to run it:
+make
+./lab1_tester
